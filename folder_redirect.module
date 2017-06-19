@@ -1,0 +1,250 @@
+<?php
+
+/**
+ * @file
+ * Allow admin to bulk import redirect of folders.
+ * Helpful in case of moving media folders with in project root,
+ *  module will automatically generate 301 redirect of each file,
+ *  in folder by setting the source & destintion.
+ *
+ * Prior of moving the folder for source to destination, generate
+ *  redirects by setting sources & destination under the page
+ *  admin/config/search/redirect/folderredirect & hit save. Once
+ *  the redirects are generated, now move the folder to the destination.
+ */
+
+/**
+ * Impliments hook_menu().
+ */
+function folder_redirect_menu() {
+  $items['admin/config/search/redirect/folderredirect'] = array(
+    'title' => 'Folder Redirects',
+    'description' => 'Configure behavior for Folder redirects.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('_folder_redirect_config'),
+    'access arguments' => array('administer folder redirect'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 50,
+  );
+  return $items;
+}
+
+/**
+ * Impliments hook_permission().
+ */
+function folder_redirect_permission() {
+  return array(
+    'administer folder redirect' => array(
+      'title' => t('Administer folder redirect'),
+      'description' => t('Administer folder redirect by adding source and destination'),
+      'restrict access' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Creating configuration form.
+ */
+function _folder_redirect_config($form, &$form_state) {
+  $form = array();
+  $form['files_autoredirect']['title'] = array(
+    '#markup' => t('<h2>Folder Redirect</h2><p>Before moving the media folder from old location to new location, add the folder path & destination path in order to automatically generate <b>301 redirect</b> for all the files in folder. Once the redirects are generated, move the folder from the old location to the new location & verify by visiting old url if it redirects correctly to the new file location.</p>'),
+  );
+  $form['folder_redirect']['scan_folder'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Folder to scan'),
+    '#default_value' => !empty(variable_get('folder_redirect_scan_folder')) ? variable_get('folder_redirect_scan_folder') : '',
+    '#size' => 60,
+    '#maxlength' => 128,
+    '#description' => t('This folder must exsist & accessable under the path so all the files inside can be scanned and a redirect rule is added for each file.<br>Example: For <b>root/content</b> folder add <b>content</b>.'),
+    '#required' => TRUE,
+  );
+
+  $form['folder_redirect']['check'] = array(
+    '#title' => t("Same as folder path"),
+    '#type' => 'checkbox',
+    '#default_value' =>!empty(variable_get('folder_redirect_check')) ? variable_get('folder_redirect_check') : '',
+    '#description' => t('Uncheck if the <b>redirect from</b> path is different'),
+    '#ajax' => array(
+      'callback' => 'testprb_ajaxtest',
+      'wrapper' => 'testprb_replace_field_div',
+    ),
+  );
+
+  $form['folder_redirect']['path_check'] = array(
+    '#type' => 'container',
+    '#states' => array(
+      "visible" => array(
+        "input[name='check']" => array("checked" => FALSE)),
+    ),
+  );
+
+  $form['folder_redirect']['path_check']['path_from'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Redirect from path'),
+    '#default_value' => !empty(variable_get('folder_redirect_from')) ? variable_get('folder_redirect_from') : '',
+    '#size' => 60,
+    '#maxlength' => 128,
+    '#description' => t('Example: For <b>root/content</b> folder add <b>content</b>.<br>'),
+  );
+
+  $form['folder_redirect']['path_to'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Redirect to path'),
+    '#default_value' => !empty(variable_get('folder_redirect_to')) ? variable_get('folder_redirect_to') : '',
+    '#size' => 60,
+    '#maxlength' => 128,
+    '#description' => t('Example: <b>sites/default/files/</b> for <b>root/sites/default/files</b> folder. Trailing slash must be provided'),
+    '#required' => TRUE,
+  );
+
+  $form['folder_redirect']['exception'] = array(
+    '#title' => t('Exceptions'),
+    '#type' => 'textarea',
+    '#description' => t('Exception rules, files or directories added in the list will be ignored. Add one entry per row'),
+    '#default_value' => !empty(implode(variable_get('folder_redirect_exceptions'))) ? implode(variable_get('folder_redirect_exceptions')) : implode(PHP_EOL, array('. ','.. ', '.DS_Store ')),
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Generate Redirects'),
+  );
+  $form['#submit'][] = '_folder_redirect_submit';
+  return $form;
+}
+
+/**
+ * Configuration form submit callback.
+ */
+function _folder_redirect_submit($form, &$form_state){
+  if(isset($form_state['values']['exception'])){
+    $exceptions = explode(PHP_EOL, trim($form_state['values']['exception']));
+    variable_set('folder_redirect_exceptions', $exceptions);
+  }
+  global $base_url;
+  variable_set('folder_redirect_check', $form_state['values']['check']);
+  variable_set('folder_redirect_scan_folder', $form_state['values']['scan_folder']);
+  variable_set('folder_redirect_from', $form_state['values']['path_from']);
+  variable_set('folder_redirect_to', $form_state['values']['path_to']);
+  if(!empty(variable_get('folder_redirect_scan_folder', '')) && !empty(variable_get('folder_redirect_to'))){
+    if(variable_get('folder_redirect_check', '')){
+      variable_del('folder_redirect_from');
+      if(triggerhelper(variable_get('folder_redirect_scan_folder', ''), variable_get('folder_redirect_to', ''), variable_get('folder_redirect_exceptions', ''))){
+        drupal_set_message('Url redirects generated, <a href="'. $base_url . '/admin/config/search/redirect">Redirects List</a>', 'status', true);
+      }else{
+        drupal_set_message('Looks like its not a directory "<i>' . variable_get('folder_redirect_from') . '</i>"', 'error', true);
+      }
+    }else{
+      if(triggerhelper(variable_get('folder_redirect_from', ''), variable_get('folder_redirect_to', ''), variable_get('folder_redirect_exceptions', ''), variable_get('folder_redirect_scan_folder', ''))){
+        drupal_set_message('Url redirects generated, <a href="'. $base_url . '/admin/config/search/redirect">Redirects List</a>', 'status', true);
+      }else{
+        drupal_set_message('Looks like its not a directory "<i>' . variable_get('folder_redirect_from') . '</i>"', 'error', true);
+      }
+    }
+  }else{
+    drupal_set_message('Invalid configurations, please try again', 'error', true);
+  }
+}
+
+/**
+ * Helper function to set important variables.
+ */
+function triggerhelper($path, $path_to, $exceptions, $folder_scan=null) {
+  $root = DRUPAL_ROOT . "/";
+  $root_preg = preg_replace("/([\/]+)/", "\\/", $root);
+  $path_from_preg = preg_replace("/([\/]+)/", "\\/", $path);
+  if($folder_scan){
+    $scan_folder = $root . $folder_scan;
+    if(is_dir($scan_folder)){
+      listAllFiles($scan_folder, $path_from_preg, $path_to, $root, $root_preg, $exceptions, $path);
+      return TRUE;
+    }else{
+      return FALSE;
+    }
+  }else{
+    $path = $root . $path;
+    if(is_dir($path)){
+      listAllFiles($path, $path_from_preg, $path_to, $root, $root_preg, $exceptions);
+      return TRUE;
+    }else{
+      return FALSE;
+    }
+  }
+}
+
+/**
+ * Helper function to scan the dir and its sub-dir.
+ */
+function listAllFiles($path, $path_from_preg, $path_to, $root, $root_preg, $exceptions, $different_path_from = '') {
+  if(!isset($redirects)){
+    $redirects = array();
+  }
+  $files = array_diff(scandir($path), array_map('trim', $exceptions));
+  foreach($files as $file){
+    if(is_dir($path . "/{$file}")){
+      if(!empty($different_path_from)){
+        listAllFiles($path . "/{$file}", $path_from_preg, $path_to, $root, $root_preg, $exceptions, $different_path_from);
+      }else{
+        listAllFiles($path . "/{$file}", $path_from_preg, $path_to, $root, $root_preg, $exceptions);
+      }
+    }else{
+      if(!empty($different_path_from)){
+        preg_match("/" .  $root_preg . "(...+)/", $path . "/{$file}", $out);
+        preg_match("/([a-zA-Z0-9-_]+)([\/])([.a-zA-Z0-9-_\/]+)/", $out[1], $out1);
+        $redirect_from = $different_path_from .'/'. $out1[3];
+        $redirect_to = $path_to . $out1[3];;
+      }else{
+        preg_match("/" .  $root_preg . "(...+)/", $path . "/{$file}", $out);
+        $redirect_from = $out[1];
+        preg_match("/" . $path_from_preg . "\/(...+)/", $redirect_from, $out1);
+        $redirect_to = $path_to . $out1[1];
+      }
+      $redirects[$redirect_from] = $redirect_to;
+    }
+  }
+  import_redirects($redirects);
+}
+
+/**
+ * Helper function to import redirects.
+ */
+function import_redirect($redirect_from, $redirect_to) {
+  $redirect = new stdClass();
+  module_invoke(
+    'redirect',
+    'object_prepare',
+    $redirect,
+    array(
+      'source' => $redirect_from,
+      'source_options' => array(),
+      'redirect' => $redirect_to,
+      'redirect_options' => array(),
+      'language' => LANGUAGE_NONE,
+    )
+  );
+
+  module_invoke('redirect', 'save', $redirect);
+}
+
+/**
+ * Helper function to import bulk redirects.
+ */
+function import_redirects($redirects) {
+
+
+  foreach ($redirects as $from_url => $to_url) {
+    $redirect = new stdClass();
+
+    redirect_object_prepare(
+      $redirect,
+      array(
+        'source' => $from_url,
+        'source_options' => array(),
+        'redirect' => $to_url,
+        'redirect_options' => array(),
+        'language' => LANGUAGE_NONE,
+      )
+    );
+    redirect_save($redirect);
+  }
+}

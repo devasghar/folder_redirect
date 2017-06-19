@@ -1,0 +1,7 @@
+name = Folder Redirects
+description = "Allow users to automatically add 301 redirects for all files within a directory."
+package = BI Custom
+core = 7.x
+
+dependencies[] = redirect
+configure = admin/config/search/redirect/folderredirect
